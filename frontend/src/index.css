@@ -1,0 +1,57 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  body {
+    background-color: #081225;
+    color: #f1f5f9;
+    font-family: 'Inter', 'Noto Sans Kannada', 'Noto Sans Devanagari', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  }
+}
+
+/* Custom Scrollbars */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: #0d1b36;
+}
+::-webkit-scrollbar-thumb {
+  background: #1e3563;
+  border-radius: 9999px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #0284c7;
+}
+
+/* Leaflet dark customizer */
+.leaflet-container {
+  width: 100%;
+  height: 100%;
+  border-radius: 0.75rem;
+  background-color: #0b1528 !important;
+}
+
+.leaflet-tile {
+  filter: brightness(0.65) invert(1) contrast(3.2) hue-rotate(200deg) saturate(0.3) brightness(0.75);
+}
+
+/* Glassmorphism helpers */
+.glass-panel {
+  background: rgba(19, 35, 71, 0.75);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid rgba(30, 53, 99, 0.7);
+}
+
+.glass-panel-hover:hover {
+  background: rgba(24, 44, 90, 0.85);
+  border-color: rgba(56, 189, 248, 0.4);
+}
+
+/* Vidhana Soudha / Palace skyline outline */
+.skyline-bg {
+  background-image: radial-gradient(circle at bottom, rgba(2, 132, 199, 0.15) 0%, transparent 70%);
+}
