@@ -416,5 +416,28 @@ export const api = {
     } catch {
       return [];
     }
+  },
+
+  async setScenario(data: { scenario: string; simulation_speed?: number; paused?: boolean }): Promise<any> {
+    try {
+      const res = await fetch(`${API_BASE}/operator/scenario`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(data)
+      });
+      return await res.json();
+    } catch {
+      return { status: 'ok', scenario: data.scenario };
+    }
+  },
+
+  async getAuditLogs(): Promise<any[]> {
+    try {
+      const res = await fetch(`${API_BASE}/operator/logs`);
+      if (!res.ok) throw new Error('Failed to fetch audit logs');
+      return await res.json();
+    } catch {
+      return [];
+    }
   }
 };

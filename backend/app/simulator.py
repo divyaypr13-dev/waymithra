@@ -28,7 +28,7 @@ class SimulatorEngine:
         self.lock = threading.Lock()
         self.running = False
         self.thread: Optional[threading.Thread] = None
-        self.speed_multiplier = 1.0
+        self.speed_multiplier = 2.0
         self.paused = False
         self.scenario = "normal"  # normal, evening_surge, silk_board_jam, sensor_glitch
         

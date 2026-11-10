@@ -1,11 +1,14 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { Language, AppMode, VehicleLiveState, Stop, Route } from './types';
 import { Header } from './components/Header';
 import { UserHome } from './components/UserHome';
+import { JourneysView } from './components/JourneysView';
+import { TrackView } from './components/TrackView';
 import { AdminDashboard } from './components/AdminDashboard';
 import { ConductorMode } from './components/ConductorMode';
 import { BusInteriorCameraModal } from './components/BusInteriorCameraModal';
 import { HelpRequestsModal } from './components/HelpRequestsModal';
+import { NearbyStopsModal } from './components/NearbyStopsModal';
 import { Footer } from './components/Footer';
 import { api } from './services/api';
 
@@ -18,9 +21,11 @@ export const App: React.FC = () => {
   const [routes, setRoutes] = useState<Route[]>([]);
   const [vehicles, setVehicles] = useState<VehicleLiveState[]>([]);
   const [selectedVehicle, setSelectedVehicle] = useState<VehicleLiveState | null>(null);
+  const [userLocation, setUserLocation] = useState<{ lat: number; lng: number } | null>(null);
   
   const [isCameraModalOpen, setIsCameraModalOpen] = useState<boolean>(false);
   const [isHelpModalOpen, setIsHelpModalOpen] = useState<boolean>(false);
+  const [isNearbyModalOpen, setIsNearbyModalOpen] = useState<boolean>(false);
 
   // Initial Data Load
   useEffect(() => {
@@ -38,24 +43,39 @@ export const App: React.FC = () => {
       }
     };
     initData();
+
+    // Auto-detect GPS location quietly if allowed
+    if (navigator.geolocation) {
+      navigator.geolocation.getCurrentPosition(
+        (pos) => {
+          setUserLocation({ lat: pos.coords.latitude, lng: pos.coords.longitude });
+        },
+        () => {
+          // Default Central Bengaluru MG Road anchor
+          setUserLocation({ lat: 12.9756, lng: 77.6097 });
+        },
+        { enableHighAccuracy: true, timeout: 6000 }
+      );
+    }
   }, []);
 
-  // Real-time Vehicle Polling (every 2.5s)
+  // Real-time Fast Vehicle Polling (every 1.5s for smooth bus tracking)
+  const refreshVehicles = useCallback(async () => {
+    const liveVehicles = await api.getVehicles();
+    if (liveVehicles && liveVehicles.length > 0) {
+      setVehicles(liveVehicles);
+      setSelectedVehicle(prev => {
+        if (!prev) return liveVehicles[0];
+        const updated = liveVehicles.find(v => v.id === prev.id);
+        return updated || prev;
+      });
+    }
+  }, []);
+
   useEffect(() => {
-    const interval = setInterval(async () => {
-      const liveVehicles = await api.getVehicles();
-      if (liveVehicles && liveVehicles.length > 0) {
-        setVehicles(liveVehicles);
-        setSelectedVehicle(prev => {
-          if (!prev) return liveVehicles[0];
-          const updated = liveVehicles.find(v => v.id === prev.id);
-          return updated || prev;
-        });
-      }
-    }, 2500);
-
+    const interval = setInterval(refreshVehicles, 1500);
     return () => clearInterval(interval);
-  }, []);
+  }, [refreshVehicles]);
 
   const handleOpenLiveCam = (vehicle?: VehicleLiveState) => {
     if (vehicle) setSelectedVehicle(vehicle);
@@ -101,9 +121,9 @@ export const App: React.FC = () => {
         onOpenHelp={() => setIsHelpModalOpen(true)}
       />
 
-      {/* Main Viewport Content based on active mode */}
+      {/* Main Viewport Content based on active mode & active tab */}
       <main className="flex-1">
-        {mode === 'user' && (
+        {mode === 'user' && activeTab === 'home' && (
           <UserHome
             stops={stops}
             routes={routes}
@@ -113,6 +133,39 @@ export const App: React.FC = () => {
             onOpenLiveCam={handleOpenLiveCam}
             language={language}
             onNavigateTab={setActiveTab}
+            userLocation={userLocation}
+            onUserLocationChange={setUserLocation}
+            onOpenHelp={() => setIsHelpModalOpen(true)}
+            onRefreshVehicles={refreshVehicles}
+          />
+        )}
+
+        {mode === 'user' && activeTab === 'journeys' && (
+          <JourneysView
+            stops={stops}
+            routes={routes}
+            vehicles={vehicles}
+            language={language}
+            onSelectVehicle={setSelectedVehicle}
+            onTrackJourney={(v) => {
+              setSelectedVehicle(v);
+              setActiveTab('track');
+            }}
+            userLocation={userLocation}
+          />
+        )}
+
+        {mode === 'user' && activeTab === 'track' && (
+          <TrackView
+            stops={stops}
+            routes={routes}
+            vehicles={vehicles}
+            selectedVehicle={defaultBus}
+            onSelectVehicle={setSelectedVehicle}
+            onOpenLiveCam={handleOpenLiveCam}
+            onOpenHelp={() => setIsHelpModalOpen(true)}
+            language={language}
+            userLocation={userLocation}
           />
         )}
 
@@ -139,7 +192,7 @@ export const App: React.FC = () => {
         )}
       </main>
 
-      {/* Live Interior Privacy Camera Modal (Core feature matching user outline image) */}
+      {/* Live Interior Privacy Camera Modal */}
       <BusInteriorCameraModal
         isOpen={isCameraModalOpen}
         onClose={() => setIsCameraModalOpen(false)}
@@ -158,6 +211,24 @@ export const App: React.FC = () => {
         language={language}
       />
 
+      {/* Nearby Stops Radar Modal */}
+      <NearbyStopsModal
+        isOpen={isNearbyModalOpen}
+        onClose={() => setIsNearbyModalOpen(false)}
+        stops={stops}
+        vehicles={vehicles}
+        routes={routes}
+        userLocation={userLocation}
+        language={language}
+        onSelectStopAsOrigin={(stopId) => {
+          setActiveTab('journeys');
+        }}
+        onSelectVehicle={(v) => {
+          setSelectedVehicle(v);
+          setActiveTab('track');
+        }}
+      />
+
       {/* Bottom Floating Navigation Dock */}
       {mode === 'user' && (
         <Footer
@@ -167,6 +238,8 @@ export const App: React.FC = () => {
           activeTab={activeTab}
           onTabChange={setActiveTab}
           onOpenLiveCam={() => handleOpenLiveCam(defaultBus)}
+          onOpenHelp={() => setIsHelpModalOpen(true)}
+          onOpenNearbyStops={() => setIsNearbyModalOpen(true)}
         />
       )}
 

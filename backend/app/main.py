@@ -21,13 +21,21 @@ from .simulator import simulator_instance
 from .camera_service import camera_service
 from .journey_planner import plan_journey, forecast_occupancy_downstream
 
+from contextlib import asynccontextmanager
+
 # Initialize database
 init_db()
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    simulator_instance.start()
+    yield
 
 app = FastAPI(
     title="Way ಮಿತ್ರ (WayMithra) API",
     description="Real-time public transit companion with crowd intelligence and accessibility.",
-    version="1.0.0"
+    version="1.0.0",
+    lifespan=lifespan
 )
 
 # Enable CORS for frontend Vite dev & build

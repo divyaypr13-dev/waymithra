@@ -1,11 +1,13 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   Search, Crosshair, MapPin, Bus, Zap, Users, ShieldCheck,
-  Clock, ArrowRight, SlidersHorizontal, RefreshCw, Video, EyeOff, Sparkles
+  Clock, ArrowRight, SlidersHorizontal, RefreshCw, Video, Sparkles, Navigation, Check, Compass
 } from 'lucide-react';
 import { Stop, Route, VehicleLiveState, JourneyPlanResponse, Language } from '../types';
 import { getTranslation } from '../translations';
-import { MapView } from './MapView';
+import { MapView, getDistanceMeters } from './MapView';
+import { NearbyStopsModal } from './NearbyStopsModal';
+import { api } from '../services/api';
 
 interface UserHomeProps {
   stops: Stop[];
@@ -16,6 +18,10 @@ interface UserHomeProps {
   onOpenLiveCam: (vehicle: VehicleLiveState) => void;
   language: Language;
   onNavigateTab?: (tab: string) => void;
+  userLocation: { lat: number; lng: number } | null;
+  onUserLocationChange?: (loc: { lat: number; lng: number }) => void;
+  onOpenHelp?: () => void;
+  onRefreshVehicles?: () => Promise<void>;
 }
 
 export const UserHome: React.FC<UserHomeProps> = ({
@@ -26,13 +32,76 @@ export const UserHome: React.FC<UserHomeProps> = ({
   onSelectVehicle,
   onOpenLiveCam,
   language,
-  onNavigateTab
+  onNavigateTab,
+  userLocation,
+  onUserLocationChange,
+  onOpenHelp,
+  onRefreshVehicles
 }) => {
   const t = getTranslation(language);
   const [searchQuery, setSearchQuery] = useState('');
+  const [showSuggestions, setShowSuggestions] = useState(false);
   const [filterType, setFilterType] = useState<'Fastest' | 'Less Crowded' | 'Alternative'>('Fastest');
   const [originStop, setOriginStop] = useState<string>('BLR-STOP-02'); // MG Road
-  const [destStop, setDestStop] = useState<string>('BLR-STOP-04'); // SJBIT College
+  const [destStop, setDestStop] = useState<string>('BLR-STOP-04');   // SJBIT College
+  
+  const [planResponse, setPlanResponse] = useState<JourneyPlanResponse | null>(null);
+  const [isRefreshing, setIsRefreshing] = useState(false);
+  const [isNearbyModalOpen, setIsNearbyModalOpen] = useState(false);
+  const [locationToast, setLocationToast] = useState<string | null>(null);
+
+  // Fetch Journey Plan when origin or destination changes
+  useEffect(() => {
+    const fetchPlan = async () => {
+      if (!originStop || !destStop || originStop === destStop) return;
+      try {
+        const res = await api.planJourney(originStop, destStop);
+        setPlanResponse(res);
+      } catch (err) {
+        console.error('Failed to plan journey', err);
+      }
+    };
+    fetchPlan();
+  }, [originStop, destStop]);
+
+  // Handle GPS location request
+  const handleUseMyLocation = () => {
+    if (!navigator.geolocation) {
+      setLocationToast('Geolocation not supported by your browser');
+      return;
+    }
+
+    setLocationToast('Detecting your GPS position...');
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        const { latitude, longitude } = pos.coords;
+        const loc = { lat: latitude, lng: longitude };
+        if (onUserLocationChange) onUserLocationChange(loc);
+
+        // Find closest stop
+        if (stops.length > 0) {
+          let closest = stops[0];
+          let minDist = Infinity;
+          stops.forEach(s => {
+            const d = getDistanceMeters(latitude, longitude, s.lat, s.lng);
+            if (d < minDist) {
+              minDist = d;
+              closest = s;
+            }
+          });
+
+          setOriginStop(closest.id);
+          const stopName = t.stops[closest.id as keyof typeof t.stops] || closest.name;
+          setLocationToast(`📍 Origin set to nearest stop: ${stopName} (${minDist < 1000 ? `${minDist}m` : `${(minDist/1000).toFixed(1)}km`})`);
+        }
+      },
+      (err) => {
+        setLocationToast('Location access denied. Using demo origin (MG Road).');
+        setOriginStop('BLR-STOP-02');
+      },
+      { enableHighAccuracy: true }
+    );
+  };
 
   // Filter nearby buses based on search query
   const filteredVehicles = vehicles.filter(v => {
@@ -46,12 +115,43 @@ export const UserHome: React.FC<UserHomeProps> = ({
     );
   });
 
+  // Autocomplete suggestions for stops and places
+  const matchingStops = stops.filter(s => {
+    if (!searchQuery.trim()) return false;
+    const q = searchQuery.toLowerCase();
+    return s.name.toLowerCase().includes(q) || s.short_name.toLowerCase().includes(q) || (s.landmark && s.landmark.toLowerCase().includes(q));
+  });
+
+  const handleSelectSuggestion = (stop: Stop) => {
+    setDestStop(stop.id);
+    setSearchQuery(t.stops[stop.id as keyof typeof t.stops] || stop.name);
+    setShowSuggestions(false);
+  };
+
+  const activePlan = planResponse?.plans.find(p => p.type === filterType) || planResponse?.plans[0];
+
+  const handleRefresh = async () => {
+    setIsRefreshing(true);
+    if (onRefreshVehicles) {
+      await onRefreshVehicles();
+    }
+    setTimeout(() => setIsRefreshing(false), 800);
+  };
+
   return (
     <div className="w-full pb-28">
       
+      {/* Toast message */}
+      {locationToast && (
+        <div className="fixed top-20 right-4 z-50 bg-[#0D1B36] border border-sky-400 text-sky-200 text-xs px-4 py-2.5 rounded-xl shadow-2xl flex items-center gap-2 animate-in fade-in">
+          <Navigation className="w-4 h-4 text-sky-400 animate-pulse" />
+          <span>{locationToast}</span>
+          <button onClick={() => setLocationToast(null)} className="ml-2 font-bold text-slate-400 hover:text-white">✕</button>
+        </div>
+      )}
+
       {/* Hero Section */}
       <div className="relative overflow-hidden bg-gradient-to-b from-[#0B1730] via-[#09152B] to-[#081225] border-b border-[#1E3563] px-4 sm:px-8 py-8 sm:py-12">
-        {/* Subtle background glow */}
         <div className="absolute top-0 right-1/4 w-96 h-96 bg-sky-500/10 rounded-full blur-3xl pointer-events-none"></div>
         <div className="absolute -bottom-10 left-10 w-80 h-80 bg-amber-500/10 rounded-full blur-3xl pointer-events-none"></div>
 
@@ -66,32 +166,60 @@ export const UserHome: React.FC<UserHomeProps> = ({
               </span>
             </h1>
 
-            {/* Search Input Bar */}
-            <div className="mt-6 flex items-center bg-[#0D1B36] border border-[#233F76] hover:border-sky-500/60 rounded-2xl p-1.5 shadow-xl transition-all">
-              <Search className="w-5 h-5 text-slate-400 ml-3 shrink-0" />
-              <input
-                type="text"
-                placeholder={t.searchPlaceholder}
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                className="w-full bg-transparent px-3 py-2 text-sm text-white placeholder-slate-400 focus:outline-hidden"
-              />
-              <button
-                onClick={() => {
-                  setOriginStop('BLR-STOP-01');
-                  setSearchQuery('Majestic');
-                }}
-                className="p-2.5 rounded-xl bg-sky-600 hover:bg-sky-500 text-white shadow-md transition-colors"
-                title="Locate closest bus"
-              >
-                <Crosshair className="w-4 h-4" />
-              </button>
+            {/* Search Input Bar with Autocomplete Dropdown */}
+            <div className="relative mt-6">
+              <div className="flex items-center bg-[#0D1B36] border border-[#233F76] hover:border-sky-500/60 focus-within:border-sky-400 rounded-2xl p-1.5 shadow-xl transition-all">
+                <Search className="w-5 h-5 text-slate-400 ml-3 shrink-0" />
+                <input
+                  type="text"
+                  placeholder={t.searchPlaceholder}
+                  value={searchQuery}
+                  onFocus={() => setShowSuggestions(true)}
+                  onChange={(e) => {
+                    setSearchQuery(e.target.value);
+                    setShowSuggestions(true);
+                  }}
+                  className="w-full bg-transparent px-3 py-2 text-sm text-white placeholder-slate-400 focus:outline-hidden"
+                />
+                <button
+                  onClick={handleUseMyLocation}
+                  className="p-2.5 rounded-xl bg-sky-600 hover:bg-sky-500 text-white shadow-md transition-colors"
+                  title="Locate closest bus stop using your GPS"
+                >
+                  <Crosshair className="w-4 h-4" />
+                </button>
+              </div>
+
+              {/* Suggestions Dropdown */}
+              {showSuggestions && matchingStops.length > 0 && (
+                <div className="absolute left-0 right-0 top-full mt-2 bg-[#0D1B36] border border-[#1E3563] rounded-2xl shadow-2xl p-2 z-50 max-h-60 overflow-y-auto">
+                  <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider px-3 py-1">
+                    Matching BMTC Stops & Landmarks
+                  </div>
+                  {matchingStops.map(s => (
+                    <button
+                      key={s.id}
+                      onClick={() => handleSelectSuggestion(s)}
+                      className="w-full text-left px-3 py-2 rounded-xl hover:bg-slate-800 text-xs text-white flex items-center justify-between transition-colors"
+                    >
+                      <div className="flex items-center gap-2">
+                        <MapPin className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+                        <div>
+                          <span className="font-bold">{t.stops[s.id as keyof typeof t.stops] || s.name}</span>
+                          <span className="text-[11px] text-slate-400 block">{s.landmark || 'Core'}</span>
+                        </div>
+                      </div>
+                      <span className="text-[10px] font-mono text-sky-400">Set Destination →</span>
+                    </button>
+                  ))}
+                </div>
+              )}
             </div>
 
             {/* Quick Action Chips */}
             <div className="mt-3.5 flex flex-wrap items-center gap-2.5">
               <button
-                onClick={() => setOriginStop('BLR-STOP-02')}
+                onClick={handleUseMyLocation}
                 className="px-3.5 py-1.5 rounded-xl bg-[#132347] hover:bg-[#182C5A] border border-[#1E3563] text-xs font-semibold text-slate-200 flex items-center gap-1.5 transition-colors"
               >
                 <MapPin className="w-3.5 h-3.5 text-amber-400" />
@@ -99,7 +227,7 @@ export const UserHome: React.FC<UserHomeProps> = ({
               </button>
               
               <button
-                onClick={() => setSearchQuery('')}
+                onClick={() => setIsNearbyModalOpen(true)}
                 className="px-3.5 py-1.5 rounded-xl bg-[#132347] hover:bg-[#182C5A] border border-[#1E3563] text-xs font-semibold text-slate-200 flex items-center gap-1.5 transition-colors"
               >
                 <Bus className="w-3.5 h-3.5 text-sky-400" />
@@ -108,34 +236,52 @@ export const UserHome: React.FC<UserHomeProps> = ({
             </div>
           </div>
 
-          {/* Hero Right: 3 Value Proposition Feature Badges */}
+          {/* Hero Right: 3 Interactive Feature Badges */}
           <div className="grid grid-cols-3 lg:grid-cols-1 gap-3 shrink-0">
-            <div className="p-3.5 rounded-2xl bg-[#0D1B36]/80 backdrop-blur-md border border-[#1E3563] flex items-center gap-3 shadow-md">
+            <button
+              onClick={() => onNavigateTab && onNavigateTab('track')}
+              className="p-3.5 rounded-2xl bg-[#0D1B36]/80 hover:bg-[#132347] backdrop-blur-md border border-[#1E3563] hover:border-amber-400/50 flex items-center gap-3 shadow-md transition-all text-left"
+            >
               <div className="w-9 h-9 rounded-xl bg-amber-400/20 text-amber-400 flex items-center justify-center shrink-0">
                 <Zap className="w-5 h-5" />
               </div>
-              <span className="text-xs font-bold text-white tracking-wide">
-                {t.realTimeTracking}
-              </span>
-            </div>
+              <div>
+                <span className="text-xs font-bold text-white tracking-wide block">
+                  {t.realTimeTracking}
+                </span>
+                <span className="text-[10px] text-amber-300">Live GPS Radar →</span>
+              </div>
+            </button>
 
-            <div className="p-3.5 rounded-2xl bg-[#0D1B36]/80 backdrop-blur-md border border-[#1E3563] flex items-center gap-3 shadow-md">
+            <button
+              onClick={() => onOpenLiveCam(selectedVehicle)}
+              className="p-3.5 rounded-2xl bg-[#0D1B36]/80 hover:bg-[#132347] backdrop-blur-md border border-[#1E3563] hover:border-sky-400/50 flex items-center gap-3 shadow-md transition-all text-left"
+            >
               <div className="w-9 h-9 rounded-xl bg-sky-400/20 text-sky-400 flex items-center justify-center shrink-0">
                 <Users className="w-5 h-5" />
               </div>
-              <span className="text-xs font-bold text-white tracking-wide">
-                {t.crowdPrediction}
-              </span>
-            </div>
+              <div>
+                <span className="text-xs font-bold text-white tracking-wide block">
+                  {t.crowdPrediction}
+                </span>
+                <span className="text-[10px] text-sky-300">Privacy Cam Feed →</span>
+              </div>
+            </button>
 
-            <div className="p-3.5 rounded-2xl bg-[#0D1B36]/80 backdrop-blur-md border border-[#1E3563] flex items-center gap-3 shadow-md">
+            <button
+              onClick={onOpenHelp}
+              className="p-3.5 rounded-2xl bg-[#0D1B36]/80 hover:bg-[#132347] backdrop-blur-md border border-[#1E3563] hover:border-emerald-400/50 flex items-center gap-3 shadow-md transition-all text-left"
+            >
               <div className="w-9 h-9 rounded-xl bg-emerald-400/20 text-emerald-400 flex items-center justify-center shrink-0">
                 <ShieldCheck className="w-5 h-5" />
               </div>
-              <span className="text-xs font-bold text-white tracking-wide">
-                {t.safeAccessible}
-              </span>
-            </div>
+              <div>
+                <span className="text-xs font-bold text-white tracking-wide block">
+                  {t.safeAccessible}
+                </span>
+                <span className="text-[10px] text-emerald-300">Request Assistance →</span>
+              </div>
+            </button>
           </div>
 
         </div>
@@ -227,7 +373,12 @@ export const UserHome: React.FC<UserHomeProps> = ({
                   {t.journeyOptions}
                 </h2>
               </div>
-              <span className="text-[11px] font-mono text-slate-400">Route 404</span>
+              <button
+                onClick={() => onNavigateTab && onNavigateTab('journeys')}
+                className="text-xs font-semibold text-amber-400 hover:text-amber-300"
+              >
+                Plan Any Route →
+              </button>
             </div>
 
             {/* Filter Pills */}
@@ -256,62 +407,62 @@ export const UserHome: React.FC<UserHomeProps> = ({
                   filterType === 'Alternative' ? 'bg-emerald-500 text-white shadow-sm' : 'text-slate-400 hover:text-white'
                 }`}
               >
+                <Compass className="w-3 h-3" />
                 {t.alternative}
               </button>
             </div>
 
-            {/* Journey Plan Cards */}
+            {/* Dynamic Journey Plan Result Cards */}
             <div className="flex flex-col gap-3">
-              {/* Option 1 */}
-              <div className="p-3.5 rounded-xl bg-[#09152B] border border-[#1E3563] hover:border-slate-500 transition-all flex items-center justify-between">
-                <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 rounded-xl bg-amber-400/10 text-amber-400 flex items-center justify-center shrink-0">
-                    <Bus className="w-5 h-5" />
-                  </div>
-                  <div>
-                    <div className="flex items-center gap-2">
-                      <span className="text-sm font-black text-white">2 {t.min}</span>
-                      <span className="text-[11px] text-slate-400">• Arrives 2:45 PM</span>
-                    </div>
-                    <span className="inline-block mt-1 px-2 py-0.5 rounded-md text-[10px] font-bold bg-rose-500/20 text-rose-300 border border-rose-500/30">
-                      Bus 404
-                    </span>
-                    <div className="text-xs text-slate-300 mt-1">
-                      <span>{t.board}: MG Road</span> • <span>{t.drop}: SJBIT Stop</span>
-                    </div>
-                    <p className="text-[11px] text-slate-400 mt-0.5">🚶 3 {t.min} {t.walk}</p>
-                  </div>
-                </div>
-                <ArrowRight className="w-4 h-4 text-slate-400" />
-              </div>
+              {activePlan ? (
+                activePlan.legs.map((leg, idx) => {
+                  const targetVehicle = vehicles.find(v => v.id === leg.vehicle_id) || vehicles[0];
 
-              {/* Option 2 */}
-              <div className="p-3.5 rounded-xl bg-[#09152B] border border-[#1E3563] hover:border-slate-500 transition-all flex items-center justify-between">
-                <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 rounded-xl bg-sky-500/10 text-sky-400 flex items-center justify-center shrink-0">
-                    <Bus className="w-5 h-5" />
-                  </div>
-                  <div>
-                    <div className="flex items-center gap-2">
-                      <span className="text-sm font-black text-white">5 {t.min}</span>
-                      <span className="text-[11px] text-slate-400">• Arrives 2:48 PM</span>
+                  return (
+                    <div
+                      key={idx}
+                      onClick={() => onSelectVehicle(targetVehicle)}
+                      className="p-3.5 rounded-xl bg-[#09152B] border border-[#1E3563] hover:border-slate-500 transition-all flex items-center justify-between cursor-pointer"
+                    >
+                      <div className="flex items-center gap-3">
+                        <div className="w-10 h-10 rounded-xl bg-amber-400/10 text-amber-400 flex items-center justify-center shrink-0">
+                          <Bus className="w-5 h-5" />
+                        </div>
+                        <div>
+                          <div className="flex items-center gap-2">
+                            <span className="text-sm font-black text-white">{leg.departure_in_minutes} {t.min}</span>
+                            <span className="text-[11px] text-slate-400">• Arrives in {leg.arrival_in_minutes} min</span>
+                          </div>
+                          <span className="inline-block mt-1 px-2 py-0.5 rounded-md text-[10px] font-bold bg-sky-500/20 text-sky-300 border border-sky-500/30">
+                            {leg.vehicle_name} (Route {leg.route_number})
+                          </span>
+                          <div className="text-xs text-slate-300 mt-1">
+                            <span>{t.board}: {leg.from_stop_name}</span> • <span>{t.drop}: {leg.to_stop_name}</span>
+                          </div>
+                          <p className="text-[11px] text-slate-400 mt-0.5">🚶 {leg.walk_to_stop_minutes} {t.min} {t.walk}</p>
+                        </div>
+                      </div>
+                      <ArrowRight className="w-4 h-4 text-slate-400" />
                     </div>
-                    <span className="inline-block mt-1 px-2 py-0.5 rounded-md text-[10px] font-bold bg-sky-500/20 text-sky-300 border border-sky-500/30">
-                      Bus 210
-                    </span>
-                    <div className="text-xs text-slate-300 mt-1">
-                      <span>{t.board}: MG Road</span> • <span>{t.drop}: Majestic</span>
-                    </div>
-                    <p className="text-[11px] text-slate-400 mt-0.5">🚶 4 {t.min} {t.walk}</p>
-                  </div>
+                  );
+                })
+              ) : (
+                <div className="p-4 text-center text-xs text-slate-400">Loading live journey options...</div>
+              )}
+
+              {/* Differential Note for Crowd Comparison */}
+              {activePlan?.crowd_differential_note && (
+                <div className="p-2.5 rounded-lg bg-sky-950/70 border border-sky-500/30 text-[11px] text-sky-200">
+                  💡 {activePlan.crowd_differential_note}
                 </div>
-                <ArrowRight className="w-4 h-4 text-slate-400" />
-              </div>
+              )}
             </div>
 
-            {/* Big Pink/Crimson Gradient CTA */}
+            {/* Big Pink/Crimson Gradient CTA: Track This Journey */}
             <button
-              onClick={() => onOpenLiveCam(selectedVehicle)}
+              onClick={() => {
+                if (onNavigateTab) onNavigateTab('track');
+              }}
               className="mt-5 w-full py-3.5 rounded-xl bg-gradient-to-r from-rose-600 via-pink-600 to-rose-500 hover:from-rose-500 hover:to-pink-500 text-white font-extrabold text-sm shadow-xl shadow-rose-600/25 flex items-center justify-center gap-2 transition-all transform active:scale-95"
             >
               <span>{t.trackThisJourney}</span>
@@ -328,11 +479,11 @@ export const UserHome: React.FC<UserHomeProps> = ({
                 </h2>
               </div>
               <button
-                onClick={() => onSelectVehicle(selectedVehicle)}
+                onClick={handleRefresh}
                 className="w-7 h-7 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-white flex items-center justify-center transition-colors"
                 title="Refresh live telemetry"
               >
-                <RefreshCw className="w-3.5 h-3.5" />
+                <RefreshCw className={`w-3.5 h-3.5 ${isRefreshing ? 'animate-spin text-amber-400' : ''}`} />
               </button>
             </div>
 
@@ -371,6 +522,9 @@ export const UserHome: React.FC<UserHomeProps> = ({
                 selectedVehicle={selectedVehicle}
                 onSelectVehicle={onSelectVehicle}
                 language={language}
+                userLocation={userLocation}
+                onUserLocationChange={onUserLocationChange}
+                showFollowToggle={false}
               />
             </div>
 
@@ -425,6 +579,25 @@ export const UserHome: React.FC<UserHomeProps> = ({
 
         </div>
       </div>
+
+      {/* Nearby Stops Modal */}
+      <NearbyStopsModal
+        isOpen={isNearbyModalOpen}
+        onClose={() => setIsNearbyModalOpen(false)}
+        stops={stops}
+        vehicles={vehicles}
+        routes={routes}
+        userLocation={userLocation}
+        language={language}
+        onSelectStopAsOrigin={(stopId) => {
+          setOriginStop(stopId);
+          setLocationToast('Origin updated from selected stop.');
+        }}
+        onSelectVehicle={(v) => {
+          onSelectVehicle(v);
+          if (onNavigateTab) onNavigateTab('track');
+        }}
+      />
 
     </div>
   );

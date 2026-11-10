@@ -1,5 +1,5 @@
-import React from 'react';
-import { Home, Compass, MapPin, Menu, Heart } from 'lucide-react';
+import React, { useState } from 'react';
+import { Home, Compass, MapPin, Menu, Heart, Sliders, Ticket, Shield, X, Bus } from 'lucide-react';
 import { Language, AppMode } from '../types';
 import { getTranslation } from '../translations';
 
@@ -10,6 +10,8 @@ interface FooterProps {
   activeTab: string;
   onTabChange: (tab: string) => void;
   onOpenLiveCam: () => void;
+  onOpenHelp?: () => void;
+  onOpenNearbyStops?: () => void;
 }
 
 export const Footer: React.FC<FooterProps> = ({
@@ -18,12 +20,77 @@ export const Footer: React.FC<FooterProps> = ({
   onModeChange,
   activeTab,
   onTabChange,
-  onOpenLiveCam
+  onOpenLiveCam,
+  onOpenHelp,
+  onOpenNearbyStops
 }) => {
   const t = getTranslation(language);
+  const [isMoreMenuOpen, setIsMoreMenuOpen] = useState(false);
 
   return (
     <div className="fixed bottom-4 left-0 right-0 z-30 px-4 pointer-events-none">
+      
+      {/* Quick More Drawer / Menu */}
+      {isMoreMenuOpen && (
+        <div className="pointer-events-auto max-w-sm mx-auto mb-3 bg-[#0D1B36]/95 backdrop-blur-2xl border border-[#1E3563] rounded-2xl p-3 shadow-2xl space-y-1.5 animate-in slide-in-from-bottom-3">
+          <div className="flex items-center justify-between px-3 py-1.5 border-b border-[#1E3563]/60 mb-2">
+            <span className="text-xs font-bold text-slate-300">Transit Role & Quick Actions</span>
+            <button
+              onClick={() => setIsMoreMenuOpen(false)}
+              className="text-slate-400 hover:text-white text-xs font-bold"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+
+          <button
+            onClick={() => {
+              onModeChange('admin');
+              setIsMoreMenuOpen(false);
+            }}
+            className="w-full text-left px-3 py-2 rounded-xl text-xs font-semibold text-slate-200 hover:bg-[#132347] flex items-center gap-2.5 transition-colors"
+          >
+            <Sliders className="w-4 h-4 text-sky-400" />
+            <span>Switch to {t.adminMode}</span>
+          </button>
+
+          <button
+            onClick={() => {
+              onModeChange('conductor');
+              setIsMoreMenuOpen(false);
+            }}
+            className="w-full text-left px-3 py-2 rounded-xl text-xs font-semibold text-slate-200 hover:bg-[#132347] flex items-center gap-2.5 transition-colors"
+          >
+            <Ticket className="w-4 h-4 text-emerald-400" />
+            <span>Switch to {t.conductorMode}</span>
+          </button>
+
+          <button
+            onClick={() => {
+              if (onOpenHelp) onOpenHelp();
+              setIsMoreMenuOpen(false);
+            }}
+            className="w-full text-left px-3 py-2 rounded-xl text-xs font-semibold text-rose-300 hover:bg-rose-500/10 flex items-center gap-2.5 transition-colors"
+          >
+            <Shield className="w-4 h-4 text-rose-400" />
+            <span>{t.requestAssistance} & SOS</span>
+          </button>
+
+          {onOpenNearbyStops && (
+            <button
+              onClick={() => {
+                onOpenNearbyStops();
+                setIsMoreMenuOpen(false);
+              }}
+              className="w-full text-left px-3 py-2 rounded-xl text-xs font-semibold text-amber-300 hover:bg-amber-500/10 flex items-center gap-2.5 transition-colors"
+            >
+              <Bus className="w-4 h-4 text-amber-400" />
+              <span>{t.nearbyStops} Radar</span>
+            </button>
+          )}
+        </div>
+      )}
+
       <div className="max-w-5xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-3">
         
         {/* Floating Navigation Island */}
@@ -60,26 +127,29 @@ export const Footer: React.FC<FooterProps> = ({
 
           <button
             onClick={() => {
-              onOpenLiveCam();
+              onModeChange('user');
+              onTabChange('track');
             }}
-            className={`px-4 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-2 text-slate-300 hover:text-white hover:bg-slate-800/60`}
+            className={`px-4 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-2 ${
+              mode === 'user' && activeTab === 'track'
+                ? 'bg-amber-400 text-slate-950 shadow-md shadow-amber-400/20'
+                : 'text-slate-300 hover:text-white hover:bg-slate-800/60'
+            }`}
           >
             <MapPin className="w-4 h-4 text-sky-400" />
             <span>{t.track}</span>
           </button>
 
           <button
-            onClick={() => {
-              onModeChange(mode === 'admin' ? 'user' : 'admin');
-            }}
+            onClick={() => setIsMoreMenuOpen(!isMoreMenuOpen)}
             className={`px-4 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-2 ${
-              mode === 'admin'
+              isMoreMenuOpen
                 ? 'bg-sky-500 text-white shadow-md'
                 : 'text-slate-300 hover:text-white hover:bg-slate-800/60'
             }`}
           >
             <Menu className="w-4 h-4" />
-            <span>{mode === 'admin' ? t.adminMode : t.more}</span>
+            <span>{t.more}</span>
           </button>
         </div>
 
